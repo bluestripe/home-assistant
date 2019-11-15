@@ -11,6 +11,7 @@ from . import (
     ATTR_INITIAL,
     ATTR_MAXIMUM,
     ATTR_MINIMUM,
+    ATTR_LOOP,
     ATTR_STEP,
     VALUE,
     DOMAIN,
@@ -43,6 +44,7 @@ async def _async_reproduce_state(
         and cur_state.attributes.get(ATTR_MAXIMUM) == state.attributes.get(ATTR_MAXIMUM)
         and cur_state.attributes.get(ATTR_MINIMUM) == state.attributes.get(ATTR_MINIMUM)
         and cur_state.attributes.get(ATTR_STEP) == state.attributes.get(ATTR_STEP)
+        and cur_state.attributes.get(ATTR_LOOP) == state.attributes.get(ATTR_LOOP)
     ):
         return
 
@@ -56,6 +58,8 @@ async def _async_reproduce_state(
         service_data[ATTR_MINIMUM] = state.attributes[ATTR_MINIMUM]
     if ATTR_STEP in state.attributes:
         service_data[ATTR_STEP] = state.attributes[ATTR_STEP]
+    if ATTR_LOOP in state.attributes:
+        service_data[ATTR_LOOP] = state.attributes[ATTR_LOOP]
 
     await hass.services.async_call(
         DOMAIN, service, service_data, context=context, blocking=True

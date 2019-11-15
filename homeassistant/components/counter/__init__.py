@@ -13,17 +13,20 @@ from homeassistant.helpers.restore_state import RestoreEntity
 _LOGGER = logging.getLogger(__name__)
 
 ATTR_INITIAL = "initial"
-ATTR_STEP = "step"
+ATTR_LOOP = "loop"
 ATTR_MINIMUM = "minimum"
 ATTR_MAXIMUM = "maximum"
+ATTR_STEP = "step"
 VALUE = "value"
 
 CONF_INITIAL = "initial"
+CONF_LOOP = "loop"
 CONF_RESTORE = "restore"
 CONF_STEP = "step"
 
 DEFAULT_INITIAL = 0
 DEFAULT_STEP = 1
+DEFAULT_LOOP = False
 DOMAIN = "counter"
 
 ENTITY_ID_FORMAT = DOMAIN + ".{}"
@@ -37,6 +40,7 @@ SERVICE_SCHEMA_CONFIGURE = ENTITY_SERVICE_SCHEMA.extend(
     {
         vol.Optional(ATTR_MINIMUM): vol.Any(None, vol.Coerce(int)),
         vol.Optional(ATTR_MAXIMUM): vol.Any(None, vol.Coerce(int)),
+        vol.Optional(ATTR_LOOP): cv.boolean,
         vol.Optional(ATTR_STEP): cv.positive_int,
         vol.Optional(ATTR_INITIAL): cv.positive_int,
         vol.Optional(VALUE): cv.positive_int,
@@ -60,6 +64,7 @@ CONFIG_SCHEMA = vol.Schema(
                         None, vol.Coerce(int)
                     ),
                     vol.Optional(CONF_RESTORE, default=True): cv.boolean,
+                    vol.Optional(CONF_LOOP, default=False): cv.boolean,
                     vol.Optional(CONF_STEP, default=DEFAULT_STEP): cv.positive_int,
                 },
                 None,
@@ -84,12 +89,15 @@ async def async_setup(hass, config):
         initial = cfg.get(CONF_INITIAL)
         restore = cfg.get(CONF_RESTORE)
         step = cfg.get(CONF_STEP)
+        loop = cfg.get(CONF_LOOP)
         icon = cfg.get(CONF_ICON)
         minimum = cfg.get(CONF_MINIMUM)
         maximum = cfg.get(CONF_MAXIMUM)
 
         entities.append(
-            Counter(object_id, name, initial, minimum, maximum, restore, step, icon)
+            Counter(
+                object_id, name, initial, minimum, maximum, restore, step, loop, icon
+            )
         )
 
     if not entities:
@@ -115,12 +123,16 @@ async def async_setup(hass, config):
 class Counter(RestoreEntity):
     """Representation of a counter."""
 
-    def __init__(self, object_id, name, initial, minimum, maximum, restore, step, icon):
+    def __init__(
+        self, object_id, name, initial, minimum, maximum, restore, step, loop, icon
+    ):
         """Initialize a counter."""
         self.entity_id = ENTITY_ID_FORMAT.format(object_id)
         self._name = name
         self._restore = restore
         self._step = step
+        self._loop = loop
+        self._looped = False
         self._state = self._initial = initial
         self._min = minimum
         self._max = maximum
@@ -149,7 +161,11 @@ class Counter(RestoreEntity):
     @property
     def state_attributes(self):
         """Return the state attributes."""
-        ret = {ATTR_INITIAL: self._initial, ATTR_STEP: self._step}
+        ret = {
+            ATTR_INITIAL: self._initial,
+            ATTR_STEP: self._step,
+            ATTR_LOOP: self._loop,
+        }
         if self._min is not None:
             ret[CONF_MINIMUM] = self._min
         if self._max is not None:
@@ -157,11 +173,21 @@ class Counter(RestoreEntity):
         return ret
 
     def compute_next_state(self, state):
-        """Keep the state within the range of min/max values."""
+        """Keep the state within the range of min/max values, loop if necessary."""
         if self._min is not None:
-            state = max(self._min, state)
+            if self._loop and (state < self._min):
+                state = self._max
+                self._looped = True
+            else:
+                state = max(self._min, state)
+                self._looped = False
         if self._max is not None:
-            state = min(self._max, state)
+            if self._loop and (state > self._max):
+                state = self._min
+                self._looped = True
+            else:
+                state = min(self._max, state)
+                self._looped = False
 
         return state
 
@@ -178,6 +204,7 @@ class Counter(RestoreEntity):
                 self._max = state.attributes.get(ATTR_MAXIMUM)
                 self._min = state.attributes.get(ATTR_MINIMUM)
                 self._step = state.attributes.get(ATTR_STEP)
+                self._loop = state.attributes.get(ATTR_LOOP)
 
     async def async_decrement(self):
         """Decrement the counter."""
@@ -202,6 +229,8 @@ class Counter(RestoreEntity):
             self._max = kwargs[CONF_MAXIMUM]
         if CONF_STEP in kwargs:
             self._step = kwargs[CONF_STEP]
+        if CONF_LOOP in kwargs:
+            self._loop = kwargs[CONF_LOOP]
         if CONF_INITIAL in kwargs:
             self._initial = kwargs[CONF_INITIAL]
         if VALUE in kwargs:
